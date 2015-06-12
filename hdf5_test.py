@@ -3,6 +3,7 @@ import os
 import lxml.etree as ET
 from xml.dom import minidom
 
+# Dictionary used to add attributes to the XML nodes
 extracting_rules={
     'Name': lambda hdf5, xml: hdf5.name.split('/')[-1],
     'Category': lambda hdf5, xml: extracting_rules['Name'](hdf5, xml).replace(":", "").upper(),
@@ -21,6 +22,8 @@ extracting_rules={
 }
 
 
+# Calculates the number of nodes on the same level that will have the same ID, and returns the final number to be
+# appended (_0, _1 etc)
 def enumerate_siblings(father_node, child_node):
     siblings = father_node.findall("./")
     sibling_counter = 0
@@ -30,31 +33,28 @@ def enumerate_siblings(father_node, child_node):
     return father_node.get('ID')+'_'+child_node.get('Category')[:4]+str(sibling_counter-1)
 
 
-# TODO:There's quite a lot of duplicated code here, mainly because of ID
+# Recursively traverses the HDF5 tree, adding XML nodes and writing the contents of 'Dataset' nodes into .csv files
+# using the repovizz-csv format.
 def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
     if isinstance(hdf5_node, h5py.highlevel.Group):
         new_node = ET.SubElement(xml_node, 'Generic')
         for id in ('Name', 'Category', 'Expanded', '_Extra'):
             new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
-
         new_node.set('ID', enumerate_siblings(xml_node, new_node))
-
         for children in hdf5_node:
             traverse_hdf5(hdf5_node[children], new_node, sampling_rate, duration, directory)
     elif isinstance(hdf5_node, h5py.highlevel.Dataset):
         if hdf5_node.len() > 0:
             new_node = ET.SubElement(xml_node, 'Signal')
-
             for id in ('Name', 'Category', 'Expanded', '_Extra', 'DefaultPath', 'EstimatedSampleRate', 'FrameSize',
                        'BytesPerSample', 'NumChannels', 'ResampledFlag', 'SpecSampleRate', 'FileType', 'FileName'):
                 new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
-
             new_node.set('ID', enumerate_siblings(xml_node, new_node))
-
-            # TODO: This samplerate calculation is quite cutre, should be simplified
+            # TODO: This samplerate calculation is quite shoddy, should be simplified
             new_node.set('SampleRate', str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration))))
             with open(os.path.join(directory,new_node.get('ID').lower()+'.csv'), "w") as text_file:
                 # TODO: Find a better naming scheme
+                # TODO: Compute minimum and maximum values
                 text_file.write('repovizz,framerate='+str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration)))+'\n')
                 for value in hdf5_node.value:
                     text_file.write(str(value[0])+',')
