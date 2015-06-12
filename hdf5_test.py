@@ -1,43 +1,57 @@
 import h5py
 import os
-import xml.etree.ElementTree as ET
+import lxml.etree as ET
 from xml.dom import minidom
 
-# Not sure if this is necessary anymore, but let's keep it
 extracting_rules={
-    'Name': lambda hdf5, xml, breadth: hdf5.name.split('/')[-1],
-    'Category': lambda hdf5, xml, breadth: extracting_rules['Name'](hdf5, xml, breadth).replace(":", "").upper(),
-    # TODO:The breadth calculation is not correct, needs to be fixed
-    'ID': lambda hdf5, xml, breadth: xml.get('ID')+'_'+extracting_rules['Category'](hdf5, xml, breadth)[:4]+str(breadth),
-    'Expanded': lambda hdf5, xml, breadth: '1'
+    'Name': lambda hdf5, xml: hdf5.name.split('/')[-1],
+    'Category': lambda hdf5, xml: extracting_rules['Name'](hdf5, xml).replace(":", "").upper(),
+    'Expanded': lambda hdf5, xml: '1',
+    '_Extra': lambda hdf5, xml: '' if isinstance(hdf5, h5py.highlevel.Group) else 'canvas=-1,color=0,selected=1',
+    'DefaultPath': lambda hdf5, xml: '0',
+    'EstimatedSampleRate': lambda hdf5, xml: '0.0',
+    'FrameSize': lambda hdf5, xml: '',
+    'BytesPerSample': lambda hdf5, xml: '',
+    'NumChannels': lambda hdf5, xml: '',
+    'NumSamples': lambda hdf5, xml: str(hdf5.len()),
+    'ResampledFlag': lambda hdf5, xml: '-1',
+    'SpecSampleRate': lambda hdf5, xml: '0.0',
+    'FileType': lambda hdf5, xml: 'CSV',
+    'FileName': lambda hdf5, xml: xml.get('Name').lower()+'.csv'
 }
 
 
-def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory, breadth):
+def enumerate_siblings(father_node, child_node):
+    siblings = father_node.findall("./")
+    sibling_counter = 0
+    for node in siblings:
+        if node.get('Category')[:4]==child_node.get('Category')[:4]:
+            sibling_counter += 1
+    return father_node.get('ID')+'_'+child_node.get('Category')[:4]+str(sibling_counter-1)
+
+
+# TODO:There's quite a lot of duplicated code here, mainly because of ID
+def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
     if isinstance(hdf5_node, h5py.highlevel.Group):
         new_node = ET.SubElement(xml_node, 'Generic')
-        new_node.set('_Extra', '')
-        for id in ('Name', 'Category', 'ID', 'Expanded'):
-            new_node.set(id, extracting_rules[id](hdf5_node, xml_node, breadth))
-        for breadth, children in enumerate(hdf5_node):
-            traverse_hdf5(hdf5_node[children], new_node, sampling_rate, duration, directory, breadth)
+        for id in ('Name', 'Category', 'Expanded', '_Extra'):
+            new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
+
+        new_node.set('ID', enumerate_siblings(xml_node, new_node))
+
+        for children in hdf5_node:
+            traverse_hdf5(hdf5_node[children], new_node, sampling_rate, duration, directory)
     elif isinstance(hdf5_node, h5py.highlevel.Dataset):
-        if hdf5_node.len()>0:
+        if hdf5_node.len() > 0:
             new_node = ET.SubElement(xml_node, 'Signal')
-            for id in ('Name', 'Category', 'ID', 'Expanded'):
-                new_node.set(id, extracting_rules[id](hdf5_node, xml_node, breadth))
-            new_node.set('_Extra', 'canvas=-1,color=0,selected=1')
-            new_node.set('DefaultPath', '0')
-            new_node.set('EstimatedSampleRate', '0.0')
-            new_node.set('FrameSize', '')
-            new_node.set('BytesPerSample', '')
-            new_node.set('NumChannels', '')
-            new_node.set('NumSamples', str(hdf5_node.len()))
-            new_node.set('ResampledFlag', '-1')
-            new_node.set('SpecSampleRate', '0.0')
-            new_node.set('FileType', 'CSV')
-            new_node.set('FileName', new_node.get('Name').lower()+'.csv')
-            # TODO: This samplerate calculation is quite shoddy, should be simplified
+
+            for id in ('Name', 'Category', 'Expanded', '_Extra', 'DefaultPath', 'EstimatedSampleRate', 'FrameSize',
+                       'BytesPerSample', 'NumChannels', 'ResampledFlag', 'SpecSampleRate', 'FileType', 'FileName'):
+                new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
+
+            new_node.set('ID', enumerate_siblings(xml_node, new_node))
+
+            # TODO: This samplerate calculation is quite cutre, should be simplified
             new_node.set('SampleRate', str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration))))
             with open(os.path.join(directory,new_node.get('ID').lower()+'.csv'), "w") as text_file:
                 # TODO: Find a better naming scheme
@@ -62,7 +76,13 @@ if duration.find('s'):
 root = ET.Element('ROOT')
 root.set('ID', 'ROOT0')
 
-traverse_hdf5(f[list(enumerate(f))[0][1]], root, sampling_rate, duration, directory[0], 0)
+traverse_hdf5(f[list(enumerate(f))[0][1]], root, sampling_rate, duration, directory[0])
+
+# Delete all Generic nodes that do not contain Signal nodes
+for empty_nodes in root.xpath(".//Generic[not(.//Signal)]"):
+    empty_nodes.getparent().remove(empty_nodes)
+
+print prettify(root)
 
 with open(output_file, "w") as text_file:
     text_file.write(prettify(root))
