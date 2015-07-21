@@ -2,6 +2,7 @@ import h5py
 import os
 import lxml.etree as ET
 from xml.dom import minidom
+import re
 
 # Dictionary used to add attributes to the XML nodes
 extracting_rules={
@@ -17,8 +18,7 @@ extracting_rules={
     'NumSamples': lambda hdf5, xml: str(hdf5.len()),
     'ResampledFlag': lambda hdf5, xml: '-1',
     'SpecSampleRate': lambda hdf5, xml: '0.0',
-    'FileType': lambda hdf5, xml: 'CSV',
-    'FileName': lambda hdf5, xml: xml.get('Name').lower()+'.csv'
+    'FileType': lambda hdf5, xml: 'CSV'
 }
 
 
@@ -47,9 +47,10 @@ def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
         if hdf5_node.len() > 0:
             new_node = ET.SubElement(xml_node, 'Signal')
             for id in ('Name', 'Category', 'Expanded', '_Extra', 'DefaultPath', 'EstimatedSampleRate', 'FrameSize',
-                       'BytesPerSample', 'NumChannels', 'ResampledFlag', 'SpecSampleRate', 'FileType', 'FileName'):
+                       'BytesPerSample', 'NumChannels', 'NumSamples', 'ResampledFlag', 'SpecSampleRate', 'FileType'):
                 new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
             new_node.set('ID', enumerate_siblings(xml_node, new_node))
+            new_node.set('Filename',new_node.get('ID').lower()+'.csv')
             # TODO: This samplerate calculation is quite shoddy, should be simplified
             new_node.set('SampleRate', str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration))))
             with open(os.path.join(directory,new_node.get('ID').lower()+'.csv'), "w") as text_file:
@@ -60,29 +61,41 @@ def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
                     text_file.write(str(value[0])+',')
 
 
+def strtime_to_seconds(strtime):
+    hours = 0
+    minutes = 0
+    split_time =re.split('(\d+H)*(\d+M)*(\d+S)', strtime.upper())
+    if split_time[1] is not None:
+        hours = int(split_time[1][:-1])
+
+    if split_time[2] is not None:
+        minutes = int(split_time[2][:-1])
+
+    seconds = int(split_time[3][:-1])
+
+    return 3600*hours+60*minutes+seconds
+
 def prettify(elem):
     rough_string = ET.tostring(elem)
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ")
 
+#input_file = '/Users/panpap/Downloads/opensignals_recordings/opensignals_file_2015-06-23_09-30-23_12h.h5'
 input_file = '/Users/panpap/Dropbox/bitalino recordings/opensignals_file_2015-04-20_19-25-34.h5'
 output_file = input_file[:-2]+'xml'
 directory = os.path.split(input_file)
 f = h5py.File(input_file, 'r')
 sampling_rate = f[list(enumerate(f))[0][1]].attrs.get('sampling rate')
-duration = f[list(enumerate(f))[0][1]].attrs.get('duration')
-if duration.find('s'):
-    duration = float(duration[:-1])
+duration = strtime_to_seconds(f[list(enumerate(f))[0][1]].attrs.get('duration'))
 root = ET.Element('ROOT')
 root.set('ID', 'ROOT0')
-
 traverse_hdf5(f[list(enumerate(f))[0][1]], root, sampling_rate, duration, directory[0])
 
 # Delete all Generic nodes that do not contain Signal nodes
 for empty_nodes in root.xpath(".//Generic[not(.//Signal)]"):
     empty_nodes.getparent().remove(empty_nodes)
 
-print prettify(root)
+#print prettify(root)
 
 with open(output_file, "w") as text_file:
     text_file.write(prettify(root))
