@@ -151,4 +151,4 @@ def process_recording(input_file):
 
 # used for internal testing
 if __name__ == '__main__':
-    process_recording('/Users/panpap/Downloads/Sample Data/BITACCBUZ.h5')
+    process_recording('/Users/panpap/Downloads/Sample Data/bitalino_example.h5')
