@@ -4,6 +4,13 @@ import lxml.etree as ET
 from xml.dom import minidom
 import re
 
+# TODOs:
+# Deal with multiple bitalinos in one recording
+# Deal with the "events" group
+# Zip the files and have them ready for repovizz upload
+# Add a good error when sampling rate is not extracted correctly (i.e. divide by zero warning)
+
+
 # Dictionary used to add attributes to the XML nodes
 extracting_rules={
     'Name': lambda hdf5, xml: hdf5.name.split('/')[-1],
@@ -19,6 +26,25 @@ extracting_rules={
     'ResampledFlag': lambda hdf5, xml: '-1',
     'SpecSampleRate': lambda hdf5, xml: '0.0',
     'FileType': lambda hdf5, xml: 'CSV'
+}
+
+anonymity_prefs={
+    'channels': True,
+    'comments': False,
+    'date': False,
+    'device': False,
+    'device connection': False,
+    'device name': False,
+    'digital IO': False,
+    'duration': True,
+    'firmware version': True,
+    'macaddress': False,
+    'mode': True,
+    'nsamples': True,
+    'resolution': True,
+    'sampling rate': True,
+    'sync interval': True,
+    'time': False,
 }
 
 
@@ -41,6 +67,17 @@ def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
         for id in ('Name', 'Category', 'Expanded', '_Extra'):
             new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
         new_node.set('ID', enumerate_siblings(xml_node, new_node))
+
+        new_metadata_node = ET.SubElement(new_node, 'Generic')
+        new_metadata_node.set('Category', 'METADATA')
+        new_metadata_node.set('Name', 'HDF5 Attributes')
+        new_metadata_node.set('ID', enumerate_siblings(new_node, new_metadata_node))
+        for id in anonymity_prefs:
+            if hdf5_node.attrs.get(id) is not None and anonymity_prefs[id] is True:
+                new_desc_node = ET.SubElement(new_metadata_node, 'Description')
+                new_desc_node.set('Category',id.upper())
+                new_desc_node.set('Text',str(hdf5_node.attrs.get(id)))
+                new_desc_node.set('ID', enumerate_siblings(new_metadata_node, new_desc_node))
         for children in hdf5_node:
             traverse_hdf5(hdf5_node[children], new_node, sampling_rate, duration, directory)
     elif isinstance(hdf5_node, h5py.highlevel.Dataset):
@@ -51,7 +88,7 @@ def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
                 new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
             new_node.set('ID', enumerate_siblings(xml_node, new_node))
             new_node.set('Filename',new_node.get('ID').lower()+'.csv')
-            # TODO: This samplerate calculation is quite shoddy, should be simplified
+            # TODO: This samplerate calculation is quite shoddy, could be simplified by assuming more things
             new_node.set('SampleRate', str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration))))
             with open(os.path.join(directory,new_node.get('ID').lower()+'.csv'), "w") as text_file:
                 # TODO: Find a better naming scheme
@@ -60,7 +97,7 @@ def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
                 for value in hdf5_node.value:
                     text_file.write(str(value[0])+',')
 
-
+# Returns the recording's duration (in seconds) as it is read from the hdf5 file's header
 def strtime_to_seconds(strtime):
     hours = 0
     minutes = 0
@@ -75,27 +112,36 @@ def strtime_to_seconds(strtime):
 
     return 3600*hours+60*minutes+seconds
 
+
+# Prints JSON in a pretty way :)
 def prettify(elem):
     rough_string = ET.tostring(elem)
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ")
 
-#input_file = '/Users/panpap/Downloads/opensignals_recordings/opensignals_file_2015-06-23_09-30-23_12h.h5'
-input_file = '/Users/panpap/Dropbox/bitalino recordings/opensignals_file_2015-04-20_19-25-34.h5'
-output_file = input_file[:-2]+'xml'
-directory = os.path.split(input_file)
-f = h5py.File(input_file, 'r')
-sampling_rate = f[list(enumerate(f))[0][1]].attrs.get('sampling rate')
-duration = strtime_to_seconds(f[list(enumerate(f))[0][1]].attrs.get('duration'))
-root = ET.Element('ROOT')
-root.set('ID', 'ROOT0')
-traverse_hdf5(f[list(enumerate(f))[0][1]], root, sampling_rate, duration, directory[0])
 
-# Delete all Generic nodes that do not contain Signal nodes
-for empty_nodes in root.xpath(".//Generic[not(.//Signal)]"):
-    empty_nodes.getparent().remove(empty_nodes)
+# takes an input .h5 file and converts it to a repovizz datapack
+def process_recording(input_file):
+    output_file = input_file[:-2]+'xml'
+    directory = os.path.split(input_file)
+    new_directory = os.path.join(directory,input_file[:-3])
+    if not os.path.exists(new_directory):
+        os.makedirs(new_directory)
+    f = h5py.File(input_file, 'r')
+    sampling_rate = f[list(enumerate(f))[0][1]].attrs.get('sampling rate')
+    duration = strtime_to_seconds(f[list(enumerate(f))[0][1]].attrs.get('duration'))
+    root = ET.Element('ROOT')
+    root.set('ID', 'ROOT0')
+    traverse_hdf5(f[list(enumerate(f))[0][1]], root, sampling_rate, duration, new_directory)
 
-#print prettify(root)
+    # Delete all Generic nodes that do not contain Signal nodes
+    for empty_nodes in root.xpath(".//Generic[not(.//Signal|.//Description)]"):
+        empty_nodes.getparent().remove(empty_nodes)
 
-with open(output_file, "w") as text_file:
-    text_file.write(prettify(root))
+    with open(output_file, "w") as text_file:
+        text_file.write(prettify(root))
+
+
+# used for internal testing
+if __name__ == '__main__':
+    process_recording('/Users/panpap/Downloads/Sample Data/BITACCBUZ.h5')
