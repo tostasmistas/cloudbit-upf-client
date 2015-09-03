@@ -5,6 +5,7 @@ from xml.dom import minidom
 import re
 
 # TODOs:
+# Strip mac address information & improve the naming scheme
 # Deal with multiple bitalinos in one recording
 # Deal with the "events" group
 # Zip the files and have them ready for repovizz upload
@@ -28,6 +29,7 @@ extracting_rules={
     'FileType': lambda hdf5, xml: 'CSV'
 }
 
+# Default anonymity preferences for Opensignals users
 anonymity_prefs={
     'channels': True,
     'comments': False,
@@ -63,17 +65,19 @@ def enumerate_siblings(father_node, child_node):
 # using the repovizz-csv format.
 def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
     if isinstance(hdf5_node, h5py.highlevel.Group):
+        # Add a Generic node for each HDF5 Group (used as a container for other nodes)
         new_node = ET.SubElement(xml_node, 'Generic')
         for id in ('Name', 'Category', 'Expanded', '_Extra'):
             new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
         new_node.set('ID', enumerate_siblings(xml_node, new_node))
-
+        # Add a Generic node for HDF5 Group attributes (used as a METADATA container)
         new_metadata_node = ET.SubElement(new_node, 'Generic')
         new_metadata_node.set('Category', 'METADATA')
         new_metadata_node.set('Name', 'HDF5 Attributes')
         new_metadata_node.set('ID', enumerate_siblings(new_node, new_metadata_node))
         for id in anonymity_prefs:
             if hdf5_node.attrs.get(id) is not None and anonymity_prefs[id] is True:
+                # Add a Description node for each attribute
                 new_desc_node = ET.SubElement(new_metadata_node, 'Description')
                 new_desc_node.set('Category',id.upper())
                 new_desc_node.set('Text',str(hdf5_node.attrs.get(id)))
@@ -82,15 +86,18 @@ def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
             traverse_hdf5(hdf5_node[children], new_node, sampling_rate, duration, directory)
     elif isinstance(hdf5_node, h5py.highlevel.Dataset):
         if hdf5_node.len() > 0:
+            # Add a Signal node for each HDF5 Dataset
             new_node = ET.SubElement(xml_node, 'Signal')
             for id in ('Name', 'Category', 'Expanded', '_Extra', 'DefaultPath', 'EstimatedSampleRate', 'FrameSize',
                        'BytesPerSample', 'NumChannels', 'NumSamples', 'ResampledFlag', 'SpecSampleRate', 'FileType'):
                 new_node.set(id, extracting_rules[id](hdf5_node, xml_node))
             new_node.set('ID', enumerate_siblings(xml_node, new_node))
             new_node.set('Filename',new_node.get('ID').lower()+'.csv')
+            # Deduce the sampling rate from the original sampling rate, duration, and number of samples
             # TODO: This samplerate calculation is quite shoddy, could be simplified by assuming more things
             new_node.set('SampleRate', str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration))))
             with open(os.path.join(directory,new_node.get('ID').lower()+'.csv'), "w") as text_file:
+                # Write the contents of the HDF5 Dataset in a repovizz .csv file
                 # TODO: Find a better naming scheme
                 # TODO: Compute minimum and maximum values
                 text_file.write('repovizz,framerate='+str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration)))+'\n')
