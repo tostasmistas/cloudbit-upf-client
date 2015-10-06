@@ -109,7 +109,7 @@ def create_signal_node(hdf5_node, xml_node, sampling_rate, duration):
     new_node.set('ID', enumerate_siblings(xml_node, new_node))
     new_node.set('Filename',new_node.get('ID').lower()+'.csv')
     # Deduce the sampling rate from the original sampling rate, duration, and number of samples
-    #  TODO: This samplerate calculation is quite shoddy, could be simplified by making stronger assumptions
+    #  TODO: This samplerate calculation is quite crude, could be simplified by making stronger assumptions
     new_node.set('SampleRate', str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration))))
     return new_node
 
@@ -118,7 +118,6 @@ def write_signal_node_to_disk(hdf5_node, signal_node, sampling_rate, duration, d
     """ Writes a repovizz-style .csv file to disk with the contents of a Signal node """
     with open(os.path.join(directory, signal_node.get('ID').lower()+'.csv'), "w") as text_file:
         # Write the contents of the HDF5 Dataset in a repovizz .csv file
-        #  TODO: Find a better naming scheme
         #  TODO: Compute minimum and maximum values
         text_file.write('repovizz,framerate='+str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration)))+'\n')
         for value in hdf5_node.value:
@@ -206,9 +205,8 @@ def process_recording(path):
     zipf.close()
     shutil.rmtree('/'+output_directory)
 
-if __name__ == '__main__':
+#if __name__ == '__main__':
     # used for internal testing
-    process_recording('/Users/panpap/Downloads/Sample Data/BITACCBUZ.h5')
-    process_recording('/Users/panpap/Downloads/Sample Data/BITACCSTD.h5')
-    process_recording('/Users/panpap/Downloads/Sample Data/BSPACCBUZ.h5')
-    process_recording('/Users/panpap/Downloads/Sample Data/BSPACCSTD.h5')
+    #process_recording('/Users/panpap/Downloads/Sample Data/BITACCSTD.h5')
+    #process_recording('/Users/panpap/Downloads/Sample Data/BSPACCBUZ.h5')
+    #process_recording('/Users/panpap/Downloads/Sample Data/BSPACCSTD.h5')
