@@ -52,7 +52,7 @@ def hello():
         # If the datapack was uploaded succesfully
         if (r3.json()['duration'] != 0):
             # Get the datapack ID and construct a working link to the datapack
-            response = 'http://repovizz.upf.edu/repo/Vizz/' + str(r2.json()['datapacks'][0]['id']) + '?startTime=0&secsToShow=10'
+            response = 'http://repovizz.upf.edu/repo/Vizz/' + str(r2.json()['datapacks'][0]['id'])
         else:
             response = 'ERROR'
     else:
