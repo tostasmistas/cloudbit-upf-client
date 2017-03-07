@@ -3,7 +3,6 @@ from xml.dom import minidom
 import re
 import shutil
 import zipfile
-import math
 import h5py
 import lxml.etree as ET
 
@@ -119,11 +118,47 @@ def create_signal_node(hdf5_node, xml_node, sampling_rate, duration):
 def write_signal_node_to_disk(hdf5_node, signal_node, sampling_rate, duration, directory):
     """ Writes a repovizz-style .csv file to disk with the contents of a Signal node """
     with open(os.path.join(directory, signal_node.get('ID').lower()+'.csv'), "w") as text_file:
+        # Extract min and max values
+        [minimum, maximum] = get_min_max_values(hdf5_node)
         # Write the contents of the HDF5 Dataset in a repovizz .csv file
-        #  TODO: Compute minimum and maximum values
-        text_file.write('repovizz,framerate='+str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration)))+'\n')
+        text_file.write('repovizz,framerate='+str(sampling_rate/round(sampling_rate/round(hdf5_node.len()/duration))) + ",minval=" + str(minimum) + ",maxval=" + str(maximum) + '\n')
+
         for value in hdf5_node.value:
             text_file.write(str(value[0])+',')
+
+
+def get_min_max_values(hdf5_node):
+    minimum = float('inf')
+    maximum = -float('inf')
+
+    for value in hdf5_node.value:
+        if value[0] < minimum :
+            minimum = value[0]
+
+        if value[0] > maximum :
+            maximum = value[0]
+
+    if minimum == float('inf'):
+        minimum = -1.0
+
+    if maximum == -float('inf'):
+        maximum = 1.0
+
+    # repovizz assumes maxval > 0
+    # and minval = 0 or minval = -maxval
+    if maximum <= 0:
+        if minimum < 0:
+            maximum = -minimum
+        else:  # min == 0 and max == 0
+            minimum = -1.
+            maximum = 1.
+    elif minimum >= 0:
+        minimum = 0.
+    else:  # min < 0
+        maximum = max(maximum, -minimum)
+        minimum = -maximum
+
+    return [float(minimum), float(maximum)]
 
 
 def traverse_hdf5(hdf5_node, xml_node, sampling_rate, duration, directory):
@@ -172,6 +207,7 @@ def prettify(elem):
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ")
 
+
 def zipdir(path, zip_handle):
     """ Zips an entire directory using zipfile """
     for root, dirs, files in os.walk(path):
@@ -207,8 +243,9 @@ def process_recording(path):
     zipf.close()
     shutil.rmtree('/'+output_directory)
 
+
 if __name__ == '__main__':
     # used for internal testing
     #process_recording('/Users/panpap/Documents/opensignals/opensignals_file_2015-10-30_16-06-59.h5')
     #process_recording('/Users/panpap/Documents/opensignals/opensignals_file_2015-10-30_16-14-45.h5')
-    process_recording('/Users/panpap/Documents/opensignals/opensignals_file_2015-10-30_16-16-07.h5')
+    process_recording('/Users/panpap/Documents/opensignals/opensignals_file_2015-11-04_11-19-39.h5')
