@@ -7,7 +7,6 @@ import struct
 import re
 import shutil
 import zipfile
-import lxml.etree as ET
 import requests
 import datetime
 import six
@@ -31,9 +30,9 @@ else:
 
 author = "panpap"
 
-# Dictionary used to add attributes to the XML nodes
+# Dictionary used to add attributes to the JSON nodes
 extracting_rules = {
-    'Name': lambda hdf5, xml: hdf5.name.split('/')[-1][1:] if re.match('([0-9A-F]{2}[:-]){5}([0-9A-F]{2})', hdf5.name.split('/')[-1][1:]) is None else hdf5.attrs.get('device'),
+    'name': lambda hdf5, xml: hdf5.name.split('/')[-1][1:] if re.match('([0-9A-F]{2}[:-]){5}([0-9A-F]{2})', hdf5.name.split('/')[-1][1:]) is None else hdf5.attrs.get('device'),
     'Category': lambda hdf5, xml: extracting_rules['Name'](hdf5, xml).replace(":", "").upper(),
     'Expanded': lambda hdf5, xml: '1',
     '_Extra': lambda hdf5, xml: '' if isinstance(hdf5, h5py.highlevel.Group) else 'canvas=-1,color=0,selected=1',
@@ -43,7 +42,6 @@ extracting_rules = {
     'BytesPerSample': lambda hdf5, xml: '',
     'NumChannels': lambda hdf5, xml: '',
     'NumSamples': lambda hdf5, xml: str(hdf5.len()),
-    'ResampledFlag': lambda hdf5, xml: '-1',
     'SpecSampleRate': lambda hdf5, xml: '0.0',
     'FileType': lambda hdf5, xml: 'CSV',
     'MinVal': lambda hdf5, xml: "",
