@@ -232,7 +232,7 @@ def post_recording(hdf5_file):
         "children": [
             {
                 "class": "data",
-                "name": "HDF5 recording",
+                "name": hdf5_file,
                 "text": "CloudBIT recording carried out on " + str(datetime.datetime.now()),
                 "link": hdf5_file
             }
@@ -247,13 +247,16 @@ def post_recording(hdf5_file):
             'owner': myself["id"]
         }
     )
+    print(json.dumps(result))
+
     datapack = result['item']
 
-    result = repovizz2_client.post(
-        '/api/v1.0/datapacks/{}/content/{}'.format(datapack["id"], open(hdf5_file))
+    result2 = repovizz2_client.post(
+        '/api/v1.0/datapacks/{}/content/{}'.format(datapack['id'], hdf5_file),
+        files={hdf5_file: open(hdf5_file)}
     )
 
-    print result
+    print(json.dumps(result2, indent=4, separators=(',', ': ')))
 
 def cleanup():
     os.remove(pathDumpOS)
@@ -274,10 +277,11 @@ if __name__ == '__main__':
         webbrowser.open(authorization_url)
         repovizz2_client.finish_auth()
     myself = repovizz2_client.get("/api/v1.0/user")
-    print myself
+    #print(json.dumps(myself, indent=4, separators=(',', ': ')))
 
     pathDumpOS = os.path.join(os.getcwd(), 'RV' + '.TXT')
     pathDumpH5 = pathDumpOS[:-4] + '.h5'
+    pathDumpH5 = "asdf.h5"
     dumpOS = open(pathDumpOS, 'wb')
 
     # #client_socket = create_tcp_client()
@@ -288,7 +292,7 @@ if __name__ == '__main__':
     #     print(">> OK: now collecting data...\n")
     #     while True:
     #         data_acquired = read(no_samples)
-    # except K3eyboardInterrupt:
+    # except KeyboardInterrupt:
     #     print('>> OK: stop data collecting\n')
 
     #     message = bytearray.fromhex('00')
