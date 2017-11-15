@@ -17,6 +17,24 @@ from repovizz2 import RepoVizzClient
 import json
 import webbrowser
 import datetime
+import re
+
+template_structure = {
+    "info": {
+        "keywords": ["CloudBIT"],
+        "description": "TCP/IP direct streaming to cloud",
+        "name": "CloudBIT uploads",
+        "author": ''
+    },
+    "children": []
+}
+
+template_data_node = {
+    "class": "data",
+    "name": '',
+    "text": "CloudBIT recording carried out on ",
+    "link": ''
+}
 
 host_ip = '192.168.4.1'
 port_number = 8001
@@ -222,41 +240,77 @@ def convert_to_h5():
 
 
 def post_recording(hdf5_file):
-    datapack_structure = {
-        "info": {
-            "keywords": ["CloudBIT"],
-            "description": "TCP/IP direct streaming to cloud",
-            "name": "CloudBIT uploads",
-            "author": myself["username"]
-        },
-        "children": [
-            {
-                "class": "data",
-                "name": hdf5_file,
-                "text": "CloudBIT recording carried out on " + str(datetime.datetime.now()),
-                "link": hdf5_file
+    # Get information about the current repovizz2 user
+    user_info = repovizz2_client.get('/api/v1.0/user')
+
+    # Check if the CloudBIT datapack exists
+    cloudBIT_datapack = {}
+
+    for datapack_id in user_info['datapacks']:
+        current_datapack = repovizz2_client.get('/api/v1.0/datapacks/' + datapack_id)
+        if current_datapack['structure']['info']['name'] == 'CloudBIT uploads':
+            cloudBIT_datapack = current_datapack
+
+    if not cloudBIT_datapack:
+        # Create the datapack structure from the templates and update its information
+        datapack_structure = template_structure
+        datapack_structure['info']['author'] = user_info['username']
+
+        new_data_node = template_data_node
+        new_data_node['name'] = hdf5_file
+        new_data_node['link'] = hdf5_file
+        new_data_node['text'] += str(datetime.datetime.now())
+        datapack_structure['children'].append(new_data_node)
+
+        result = repovizz2_client.post(
+            "/api/v1.0/datapacks",
+            json={
+                'structure': datapack_structure,
+                'name': datapack_structure['info']['name'],
+                'owner': user_info["id"]
             }
-        ]
-    }
+        )
+        print(json.dumps(result))
 
-    result = repovizz2_client.post(
-        "/api/v1.0/datapacks",
-        json={
-            'structure': datapack_structure,
-            'name': datapack_structure['info']['name'],
-            'owner': myself["id"]
-        }
-    )
-    print(json.dumps(result))
+        datapack = result['item']
 
-    datapack = result['item']
+        # Upload the file
+        result2 = repovizz2_client.post(
+            '/api/v1.0/datapacks/{}/content/{}'.format(datapack['id'], hdf5_file),
+            files={hdf5_file: open(hdf5_file)}
+        )
+        print(json.dumps(result2, indent=4, separators=(',', ': ')))
+    else:
+        print("*************** it exists ***************")
+        # Check if this particular recording has been already uploaded
+        if find_data_node(cloudBIT_datapack['structure']['children'], hdf5_file):
+            print 'File ' + hdf5_file + ' has already been uploaded.'
+        else:
+            # Update the datapack structure and add the new data node
+            new_data_node = template_data_node
+            new_data_node['name'] = hdf5_file
+            new_data_node['link'] = hdf5_file
+            new_data_node['text'] += str(datetime.datetime.now())
+            cloudBIT_datapack['structure']['children'].append(new_data_node)
 
-    result2 = repovizz2_client.post(
-        '/api/v1.0/datapacks/{}/content/{}'.format(datapack['id'], hdf5_file),
-        files={hdf5_file: open(hdf5_file)}
-    )
+            result = repovizz2_client.post("/api/v1.0/datapacks/{}".format(cloudBIT_datapack['id']), json=cloudBIT_datapack)
+            print(json.dumps(result, indent=4, separators=(',', ': ')))
 
-    print(json.dumps(result2, indent=4, separators=(',', ': ')))
+            # Upload the file
+            result2 = repovizz2_client.post(
+                '/api/v1.0/datapacks/{}/content/{}'.format(cloudBIT_datapack['id'], hdf5_file),
+                files={hdf5_file: open(hdf5_file)}
+            )
+            print(json.dumps(result2, indent=4, separators=(',', ': ')))
+
+
+def find_data_node(children ,name):
+    exists = False
+    for node in children:
+        if node['name'] == name:
+            exists = True
+    return exists
+
 
 def cleanup():
     os.remove(pathDumpOS)
@@ -266,18 +320,19 @@ def cleanup():
 
 if __name__ == '__main__':
     # This section covers repovizz2 authentication
-    CLIENT_ID = "27681bb0-6e8a-435f-a872-957fa1f00053"
-    CLIENT_SECRET = "450bbac3-a9d5-4f87-8c31-be6b80bad507"
-    repovizz2_client = RepoVizzClient(client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
+    repovizz2_client = RepoVizzClient(client_id="27681bb0-6e8a-435f-a872-957fa1f00053",
+                                      client_secret="450bbac3-a9d5-4f87-8c31-be6b80bad507")
+
     if os.path.isfile("token.file"):
+        # Try to re-use an existing token or refresh it
         repovizz2_client.check_auth()
     else:
+        # Obtain a new token (requires user input)
         authorization_url = repovizz2_client.start_auth()
         repovizz2_client.start_server(async=True)
         webbrowser.open(authorization_url)
         repovizz2_client.finish_auth()
-    myself = repovizz2_client.get("/api/v1.0/user")
-    #print(json.dumps(myself, indent=4, separators=(',', ': ')))
+
 
     pathDumpOS = os.path.join(os.getcwd(), 'RV' + '.TXT')
     pathDumpH5 = pathDumpOS[:-4] + '.h5'
@@ -312,7 +367,7 @@ if __name__ == '__main__':
     #     print(">> OK: connect to the internet now...\n")
     #     # time.sleep(30)  # we need to have time to connect to the internet again
 
-    #     # send received data to Repovizz
+    #     # send received data to repovizz2
     #     convert_to_h5()
     if os.path.isfile(pathDumpH5):
         post_recording(pathDumpH5)

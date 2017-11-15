@@ -95,10 +95,15 @@ class RepoVizzClient(object):
 
     def check_auth(self):
         try:
+            extra = {
+                'client_id': self.client_id,
+                'client_secret': self.client_secret,
+            }
             redirect_uri = SCRIPT_URL
             scope = ['basic']
             self.oauthclient = OAuth2Session(self.client_id, scope=scope, redirect_uri=redirect_uri,
                                              auto_refresh_url = self.repovizz_url + "/oauth/token",
+                                             auto_refresh_kwargs=extra,
                                              token=self.load_token())
             self.oauthclient.get(REPOVIZZ_URL + "/api/v1.0/user")
         except TokenUpdated as e:
