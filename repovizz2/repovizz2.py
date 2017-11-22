@@ -106,8 +106,13 @@ class RepoVizzClient(object):
                                              auto_refresh_kwargs=extra,
                                              token=self.load_token())
             self.oauthclient.get(REPOVIZZ_URL + "/api/v1.0/user")
+            return True
         except TokenUpdated as e:
             self.save_token(e.token)
+            return True
+        except Exception as e:
+            print e.message
+            return False
 
     def get(self, url, raw=False, *args, **kwargs):
         r = self.oauthclient.get(self.repovizz_url+url, *args, **kwargs)

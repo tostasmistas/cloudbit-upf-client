@@ -1,23 +1,15 @@
 import os
 import socket
-import time
 import math
 import numpy as np
 import struct
-import re
-import shutil
-import zipfile
-import requests
 import datetime
 import six
-import binascii
 from collections import OrderedDict
 import h5py
 from repovizz2 import RepoVizzClient
 import json
 import webbrowser
-import datetime
-import re
 
 template_structure = {
     "info": {
@@ -47,6 +39,7 @@ if no_channels <= 4:
     no_bytes = int(math.ceil((12. + 10. * no_channels) / 8.))
 else:
     no_bytes = int(math.ceil((52. + 6. * (no_channels - 4)) / 8.))
+
 
 def create_tcp_client():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
@@ -252,6 +245,7 @@ def post_recording(hdf5_file):
             cloudBIT_datapack = current_datapack
 
     if not cloudBIT_datapack:
+        print("*************** The CloudBIT datapack doesn't exist yet ***************")
         # Create the datapack structure from the templates and update its information
         datapack_structure = template_structure
         datapack_structure['info']['author'] = user_info['username']
@@ -270,6 +264,7 @@ def post_recording(hdf5_file):
                 'owner': user_info["id"]
             }
         )
+        print("Datapack structure upload status:")
         print(json.dumps(result))
 
         datapack = result['item']
@@ -279,21 +274,24 @@ def post_recording(hdf5_file):
             '/api/v1.0/datapacks/{}/content/{}'.format(datapack['id'], hdf5_file),
             files={hdf5_file: open(hdf5_file)}
         )
+        print("CloudBIT recording upload status:")
         print(json.dumps(result2, indent=4, separators=(',', ': ')))
     else:
-        print("*************** it exists ***************")
+        print("*************** The CloudBIT datapack exists ***************")
         # Check if this particular recording has been already uploaded
         if find_data_node(cloudBIT_datapack['structure']['children'], hdf5_file):
             print 'File ' + hdf5_file + ' has already been uploaded.'
+            print(json.dumps(cloudBIT_datapack, indent=4, separators=(',', ': ')))
         else:
             # Update the datapack structure and add the new data node
             new_data_node = template_data_node
             new_data_node['name'] = hdf5_file
             new_data_node['link'] = hdf5_file
-            new_data_node['text'] += str(datetime.datetime.now())
+            new_data_node['text'] += hdf5_file[3:-3]
             cloudBIT_datapack['structure']['children'].append(new_data_node)
 
             result = repovizz2_client.post("/api/v1.0/datapacks/{}".format(cloudBIT_datapack['id']), json=cloudBIT_datapack)
+            print("Datapack structure update status:")
             print(json.dumps(result, indent=4, separators=(',', ': ')))
 
             # Upload the file
@@ -301,7 +299,9 @@ def post_recording(hdf5_file):
                 '/api/v1.0/datapacks/{}/content/{}'.format(cloudBIT_datapack['id'], hdf5_file),
                 files={hdf5_file: open(hdf5_file)}
             )
+            print("CloudBIT recording upload status:")
             print(json.dumps(result2, indent=4, separators=(',', ': ')))
+
 
 
 def find_data_node(children ,name):
@@ -323,10 +323,7 @@ if __name__ == '__main__':
     repovizz2_client = RepoVizzClient(client_id="27681bb0-6e8a-435f-a872-957fa1f00053",
                                       client_secret="450bbac3-a9d5-4f87-8c31-be6b80bad507")
 
-    if os.path.isfile("token.file"):
-        # Try to re-use an existing token or refresh it
-        repovizz2_client.check_auth()
-    else:
+    if not repovizz2_client.check_auth():
         # Obtain a new token (requires user input)
         authorization_url = repovizz2_client.start_auth()
         repovizz2_client.start_server(async=True)
@@ -334,14 +331,17 @@ if __name__ == '__main__':
         repovizz2_client.finish_auth()
 
 
-    pathDumpOS = os.path.join(os.getcwd(), 'RV' + '.TXT')
+    pathDumpOS = os.path.join(os.getcwd(), 'RV_' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.TXT')
     pathDumpH5 = pathDumpOS[:-4] + '.h5'
-    pathDumpH5 = "asdf.h5"
     dumpOS = open(pathDumpOS, 'wb')
 
-    # #client_socket = create_tcp_client()
-    # #time.sleep(5)
+    f = open(pathDumpH5, 'w')
+    f.write('test')
+    f.close()
 
+    # client_socket = create_tcp_client()
+    # time.sleep(5)
+    #
     # no_samples = 10
     # try:
     #     print(">> OK: now collecting data...\n")
@@ -349,11 +349,11 @@ if __name__ == '__main__':
     #         data_acquired = read(no_samples)
     # except KeyboardInterrupt:
     #     print('>> OK: stop data collecting\n')
-
+    #
     #     message = bytearray.fromhex('00')
     #     print(">> OK: message sent\n")
     #     client_socket.send(message)
-
+    #
     #     message = bytearray.fromhex('07')
     #     client_socket.send(message)
     #     print(">> OK: message sent")
@@ -363,15 +363,15 @@ if __name__ == '__main__':
     #         if version_str[-1] == '\n' and 'BITalino' in version_str:
     #             break
     #     print(version_str[version_str.index("BITalino"):-1] + '\n')
-
+    #
     #     print(">> OK: connect to the internet now...\n")
     #     # time.sleep(30)  # we need to have time to connect to the internet again
-
+    #
     #     # send received data to repovizz2
     #     convert_to_h5()
+
     if os.path.isfile(pathDumpH5):
-        post_recording(pathDumpH5)
+        post_recording(os.path.basename(pathDumpH5))
 
-    # cleanup()
-
+    cleanup()
     print("\n>> DONE")
