@@ -11,6 +11,7 @@ from repovizz2 import RepoVizzClient
 import json
 import webbrowser
 
+# A template for the datapack structure to-be-uploaded
 template_structure = {
     "info": {
         "keywords": ["CloudBIT"],
@@ -21,6 +22,7 @@ template_structure = {
     "children": []
 }
 
+# A template for new data nodes
 template_data_node = {
     "class": "data",
     "name": '',
@@ -256,6 +258,7 @@ def post_recording(hdf5_file):
         new_data_node['text'] += str(datetime.datetime.now())
         datapack_structure['children'].append(new_data_node)
 
+        # Post the datapack structure first
         result = repovizz2_client.post(
             "/api/v1.0/datapacks",
             json={
@@ -269,7 +272,7 @@ def post_recording(hdf5_file):
 
         datapack = result['item']
 
-        # Upload the file
+        # Now upload the file
         result2 = repovizz2_client.post(
             '/api/v1.0/datapacks/{}/content/{}'.format(datapack['id'], hdf5_file),
             files={hdf5_file: open(hdf5_file)}
@@ -304,6 +307,7 @@ def post_recording(hdf5_file):
 
 
 
+# Searches for a data node by name
 def find_data_node(children ,name):
     exists = False
     for node in children:
@@ -330,14 +334,17 @@ if __name__ == '__main__':
         webbrowser.open(authorization_url)
         repovizz2_client.finish_auth()
 
-
+    # This is just for local testing. A better naming scheme should be used to detect duplicate recordings.
     pathDumpOS = os.path.join(os.getcwd(), 'RV_' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.TXT')
     pathDumpH5 = pathDumpOS[:-4] + '.h5'
     dumpOS = open(pathDumpOS, 'wb')
 
+    # This should be commented out when integrating with CloudBIT...
     f = open(pathDumpH5, 'w')
     f.write('test')
     f.close()
+
+    # ...and this should be un-commented.
 
     # client_socket = create_tcp_client()
     # time.sleep(5)
@@ -370,6 +377,7 @@ if __name__ == '__main__':
     #     # send received data to repovizz2
     #     convert_to_h5()
 
+    # This should be moved within the KeyboardInterrupt exception block
     if os.path.isfile(pathDumpH5):
         post_recording(os.path.basename(pathDumpH5))
 
