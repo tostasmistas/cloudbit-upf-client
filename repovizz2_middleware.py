@@ -319,7 +319,6 @@ def find_data_node(children ,name):
 def cleanup():
     os.remove(pathDumpOS)
     os.remove(pathDumpH5)
-    #TODO delete directory too
 
 
 if __name__ == '__main__':

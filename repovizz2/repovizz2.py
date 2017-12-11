@@ -2,6 +2,7 @@ import os
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 from requests_oauthlib import OAuth2Session, TokenUpdated
+from oauthlib.oauth2 import TokenExpiredError
 import socket
 from threading import Thread
 from time import sleep
@@ -95,21 +96,24 @@ class RepoVizzClient(object):
 
     def check_auth(self):
         try:
-            extra = {
-                'client_id': self.client_id,
-                'client_secret': self.client_secret,
-            }
             redirect_uri = SCRIPT_URL
             scope = ['basic']
             self.oauthclient = OAuth2Session(self.client_id, scope=scope, redirect_uri=redirect_uri,
-                                             auto_refresh_url = self.repovizz_url + "/oauth/token",
-                                             auto_refresh_kwargs=extra,
                                              token=self.load_token())
             self.oauthclient.get(REPOVIZZ_URL + "/api/v1.0/user")
             return True
-        except TokenUpdated as e:
-            self.save_token(e.token)
-            return True
+        except TokenExpiredError as e:
+            try:
+                extra = {
+                    'client_id': self.client_id,
+                    'client_secret': self.client_secret,
+                }
+                new_token = self.oauthclient.refresh_token(self.repovizz_url + "/oauth/token", **extra)
+                self.save_token(new_token)
+                return True
+            except Exception:
+                os.remove("token.file")
+                return False
         except Exception as e:
             print e.message
             return False
