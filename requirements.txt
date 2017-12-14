@@ -1,5 +1,4 @@
 numpy
 requests
-six
 h5py
 requests-oauthlib==0.7.0
