@@ -244,8 +244,11 @@ if __name__ == '__main__':
     '''
 
     # This section covers repovizz2 authentication
-    repovizz2_client = RepoVizzClient(client_id="27681bb0-6e8a-435f-a872-957fa1f00053",
-                                      client_secret="450bbac3-a9d5-4f87-8c31-be6b80bad507")
+    client_settings = json.load(open('client_settings.json'))
+    repovizz2_client = RepoVizzClient(client_id=client_settings["id"],
+                                      client_secret=client_settings["secret"],
+                                      script_port=client_settings["port"],
+                                      script_url=client_settings["url"])
 
     if not repovizz2_client.check_auth():
         # Obtain a new token (requires user input)

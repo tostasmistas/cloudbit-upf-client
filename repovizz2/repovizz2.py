@@ -15,9 +15,11 @@ SCRIPT_URL = "http://localhost:{}".format(SCRIPT_PORT)
 
 
 class RepoVizzClient(object):
-    def __init__(self, client_id, client_secret, repovizz_url=REPOVIZZ_URL):
+    def __init__(self, client_id, client_secret, script_port=SCRIPT_PORT, script_url=SCRIPT_URL, repovizz_url=REPOVIZZ_URL):
         self.client_id = client_id
         self.client_secret = client_secret
+        self.script_port = script_port
+        self.script_url = script_url + ":" + str(script_port)
         self.repovizz_url = repovizz_url
         self.miniserver = None
         self.request_data = None
@@ -49,7 +51,7 @@ class RepoVizzClient(object):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if async:
             s.settimeout(0.1)
-        s.bind(('127.0.0.1', SCRIPT_PORT))
+        s.bind(('127.0.0.1', self.script_port))
         s.listen(1)
         response = 'HTTP/1.0 200 OK\nConnection: close\nContent-Length: 10\nContent-Type: text/html\n\nThank you.'
         while self._server_running:
@@ -67,7 +69,7 @@ class RepoVizzClient(object):
 
     def get_auth_url(self):
         authorization_base_url = self.repovizz_url + '/oauth/authorize'
-        redirect_uri = SCRIPT_URL
+        redirect_uri = self.script_url
         scope = ['basic']
         self.oauthclient = OAuth2Session(self.client_id, scope=scope, redirect_uri=redirect_uri)
         authorization_url, state = self.oauthclient.authorization_url(authorization_base_url)
@@ -96,7 +98,7 @@ class RepoVizzClient(object):
 
     def check_auth(self):
         try:
-            redirect_uri = SCRIPT_URL
+            redirect_uri = self.script_url
             scope = ['basic']
             self.oauthclient = OAuth2Session(self.client_id, scope=scope, redirect_uri=redirect_uri,
                                              token=self.load_token())
