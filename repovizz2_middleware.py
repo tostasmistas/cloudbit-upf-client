@@ -1,13 +1,11 @@
+from bitalino import repobit_api
 import os
 import socket
-import math
 import numpy as np
-import struct
 import datetime
-import six
 from collections import OrderedDict
 import h5py
-from repovizz2 import RepoVizzClient
+from repovizz2.repovizz2 import RepoVizzClient
 import json
 import webbrowser
 
@@ -30,138 +28,40 @@ template_data_node = {
     "link": ''
 }
 
-host_ip = '192.168.4.1'
-port_number = 8001
 
-default_pktsize = 1024
+def socket_wait_client(server_socket):
+    print(">> OK: server socket is listening for clients ...\n")
+    client_socket, client_address = server_socket.accept()
 
-sampling_rate = 1000
-no_channels = 4
-if no_channels <= 4:
-    no_bytes = int(math.ceil((12. + 10. * no_channels) / 8.))
-else:
-    no_bytes = int(math.ceil((52. + 6. * (no_channels - 4)) / 8.))
-
-
-def create_tcp_client():
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-    server_address = (host_ip, port_number)
-    client_socket.connect(server_address)
     print(">> OK: TCP connection established\n")
     return client_socket
 
 
-def close():
-    client_socket.settimeout(1.0)  # set a timeout of 1 second
-    try:
-        receive(default_pktsize)  # receive any pending data
-        client_socket.shutdown(socket.SHUT_RDWR)
-        print(">> OK: TCP/IP connection to be gracefully shutdown")
-        client_socket.close()
-        print(">> OK: TCP/IP connection disconnected\n")
-    except socket.timeout:
-        print(">> ERROR: timed out on receive\n")
-        client_socket.shutdown(socket.SHUT_RDWR)
-        print(">> OK: TCP/IP connection to be gracefully shutdown")
-        client_socket.close()
-        print(">> OK: TCP/IP connection disconnected\n")
+def create_tcp_server(host_ip):
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+    print(">> OK: server socket created\n")
+
+    server_socket.bind((host_ip.split(':')[0], int(host_ip.split(':')[1])))
+    print(">> OK: server socket binded\n")
+
+    server_socket.listen(5)
+
+    return server_socket
 
 
-def receive(no_bytes_to_read):
-    data = b''
-    while len(data) < no_bytes_to_read:
-        data += client_socket.recv(1)
-    return data
-
-
-def read(no_samples):
-    data_acquired = np.zeros((no_samples, 5 + no_channels))
-    for sample in range(no_samples):
-        raw_data = receive(no_bytes)
-        decoded_data = list(struct.unpack(no_bytes * "B ", raw_data))
-        crc = decoded_data[-1] & 0x0F
-        decoded_data[-1] = decoded_data[-1] & 0xF0
-        x = 0
-        for i in range(no_bytes):
-            for bit in range(7, -1, -1):
-                x = x << 1
-                if x & 0x10:
-                    x = x ^ 0x03
-                x = x ^ ((decoded_data[i] >> bit) & 0x01)
-        if crc == x & 0x0F:  # only fill data to the array if it passes CRC verification
-            data_acquired[sample, 0] = decoded_data[-1] >> 4  # sequence number
-            data_acquired[sample, 1] = decoded_data[-2] >> 7 & 0x01
-            data_acquired[sample, 2] = decoded_data[-2] >> 6 & 0x01
-            data_acquired[sample, 3] = decoded_data[-2] >> 5 & 0x01
-            data_acquired[sample, 4] = decoded_data[-2] >> 4 & 0x01
-            if no_channels > 0:
-                data_acquired[sample, 5] = ((decoded_data[-2] & 0x0F) << 6) | (decoded_data[-3] >> 2)
-            if no_channels > 1:
-                data_acquired[sample, 6] = ((decoded_data[-3] & 0x03) << 8) | decoded_data[-4]
-            if no_channels > 2:
-                data_acquired[sample, 7] = (decoded_data[-5] << 2) | (decoded_data[-6] >> 6)
-            if no_channels > 3:
-                data_acquired[sample, 8] = ((decoded_data[-6] & 0x3F) << 4) | (decoded_data[-7] >> 4)
-            if no_channels > 4:
-                data_acquired[sample, 9] = ((decoded_data[-7] & 0x0F) << 2) | (decoded_data[-8] >> 6)
-            if no_channels > 5:
-                data_acquired[sample, 10] = decoded_data[-8] & 0x3F
-            np.savetxt(dumpOS, [data_acquired[sample]], delimiter='\t', fmt='%i')
-        else:
-            print("CRC FAIL!")
-    return data_acquired
-
-
-def encode_hdf5_metadata():
-    message = bytearray.fromhex('0B')
-    client_socket.send(message)
-    print(">> OK: message sent")
-
-    status_data = receive(18)
-
-    if isinstance(status_data, six.string_types):
-        status_data = str(status_data).encode('hex')
+def encode_hdf5_metadata(webpage, **options):
+    if webpage is True:
+        acquired_data = options.get('device').state()
+        cb_mode = acquired_data['mode']
+        cb_sampling_rate = acquired_data['samplingRate']
+        cb_channels = acquired_data['selectedChannels']
+        cb_no_channels = len(cb_channels)
     else:
-        status_data = status_data.hex()
-    status_data = status_data[-4:]
-
-    binary_mode = int(status_data[1], 16) & 0x1
-    if binary_mode == 0:
-        cb_mode = 'live'
-    elif binary_mode == 1:
-        cb_mode = 'simulated'
-    mode = 0
-    if cb_mode == 'simulated':
-        mode = 1
-
-    binary_sampling_rate = (int(status_data[2], 16) & 0xC) >> 2
-    if binary_sampling_rate == 0:
-        cb_sampling_rate = 1
-    elif binary_sampling_rate == 1:
-        cb_sampling_rate = 10
-    elif binary_sampling_rate == 2:
-        cb_sampling_rate = 100
-    elif binary_sampling_rate == 3:
-        cb_sampling_rate = 1000
-
-    binary_channels = int(status_data[2:4], 16) & 0x3F
-    cb_channels = ''
-    if binary_channels & 0x01:
-        cb_channels += str(1)
-    if binary_channels & 0x02:
-        cb_channels += str(2)
-    if binary_channels & 0x04:
-        cb_channels += str(3)
-    if binary_channels & 0x08:
-        cb_channels += str(4)
-    if binary_channels & 0x10:
-        cb_channels += str(5)
-    if binary_channels & 0x20:
-        cb_channels += str(6)
-    cb_no_channels = len(cb_channels)
-    channels = []
-    for i in range(0, cb_no_channels):
-        channels.append('A' + str(cb_channels[i]))
+        acquired_data = ''
+        cb_mode = 'live'  # the BITalino API is only programmed to work in live mode
+        cb_sampling_rate = sampling_rate
+        cb_channels = [x+1 for x in acquisition_channels]
+        cb_no_channels = len(cb_channels)
 
     if cb_no_channels == 6:
         adc_resolution = [10, 10, 10, 10, 6, 6]
@@ -179,7 +79,7 @@ def encode_hdf5_metadata():
     metadata['device name'] = '192.168.4.1:8001'
     metadata['digital IO'] = [0, 0, 1, 1]
     metadata['firmware version'] = 52
-    metadata['mode'] = mode
+    metadata['mode'] = cb_mode
     metadata['resolution'] = [4, 1, 1, 1, 1] + adc_resolution
     metadata['sampling rate'] = cb_sampling_rate
     metadata['sync interval'] = 2
@@ -187,13 +87,10 @@ def encode_hdf5_metadata():
 
     print(metadata)
 
-    return metadata
+    return acquired_data, metadata
 
 
-def convert_to_h5():
-    encoded_metadata = encode_hdf5_metadata()
-
-    close()  # close the client socket
+def convert_to_h5(encoded_metadata):
     dumpOS.close()  # close the OpenSignals dump file
 
     data = np.loadtxt(pathDumpOS, delimiter='\t')
@@ -293,7 +190,8 @@ def post_recording(hdf5_file):
             new_data_node['text'] += hdf5_file[3:-3]
             cloudBIT_datapack['structure']['children'].append(new_data_node)
 
-            result = repovizz2_client.post("/api/v1.0/datapacks/{}".format(cloudBIT_datapack['id']), json=cloudBIT_datapack)
+            result = repovizz2_client.post("/api/v1.0/datapacks/{}".format(cloudBIT_datapack['id']),
+                                           json=cloudBIT_datapack)
             print("Datapack structure update status:")
             print(json.dumps(result, indent=4, separators=(',', ': ')))
 
@@ -304,7 +202,6 @@ def post_recording(hdf5_file):
             )
             print("CloudBIT recording upload status:")
             print(json.dumps(result2, indent=4, separators=(',', ': ')))
-
 
 
 # Searches for a data node by name
@@ -322,6 +219,30 @@ def cleanup():
 
 
 if __name__ == '__main__':
+    # all these parameters are required
+    host_ip = '84.89.139.169:4382'
+    configured_webpage = True
+    sampling_rate = 1000
+    acquisition_channels = [0, 1, 2, 3, 4, 5]
+    no_samples = 10
+
+    '''
+        :parameter host_ip: host server IP address and port number with the format ip:port
+        :type host_ip: str
+    
+        :parameter configured_webpage: system configured through the web page (True) or configured now through the API (False)
+        :type configured_webpage: boolean
+    
+        :parameter sampling_rate: sampling frequency (Hz) where possible values are 1Hz, 10Hz, 100Hz or 1000Hz
+        :type sampling_rate: int
+    
+        :parameter acquisition_channels: channels to be acquired where A1 = 0, A2 = 1, A3 = 2, A4 = 3, A5 = 4 and A6 = 5
+        :type acquisition_channels: array, tuple or list of int
+    
+        :parameter no_samples: number of samples to acquire per read operation
+        :type no_samples: int
+    '''
+
     # This section covers repovizz2 authentication
     repovizz2_client = RepoVizzClient(client_id="27681bb0-6e8a-435f-a872-957fa1f00053",
                                       client_secret="450bbac3-a9d5-4f87-8c31-be6b80bad507")
@@ -333,52 +254,77 @@ if __name__ == '__main__':
         webbrowser.open(authorization_url)
         repovizz2_client.finish_auth()
 
-    # This is just for local testing. A better naming scheme should be used to detect duplicate recordings.
-    pathDumpOS = os.path.join(os.getcwd(), 'RV_' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.TXT')
-    pathDumpH5 = pathDumpOS[:-4] + '.h5'
-    dumpOS = open(pathDumpOS, 'wb')
+    # create the server socket that will listen to clients
+    server_socket = create_tcp_server(host_ip)
 
-    # This should be commented out when integrating with CloudBIT...
-    f = open(pathDumpH5, 'w')
-    f.write('test')
-    f.close()
+    while True:
+        # This is just for local testing. A better naming scheme should be used to detect duplicate recordings.
+        pathDumpOS = os.path.join(os.getcwd(), 'RV_' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.TXT')
+        pathDumpH5 = pathDumpOS[:-4] + '.h5'
+        dumpOS = open(pathDumpOS, 'wb')
 
-    # ...and this should be un-commented.
+        # connect to BITalino
+        device = repobit_api.RepoBIT(timeout=15.0)
 
-    # client_socket = create_tcp_client()
-    # time.sleep(5)
-    #
-    # no_samples = 10
-    # try:
-    #     print(">> OK: now collecting data...\n")
-    #     while True:
-    #         data_acquired = read(no_samples)
-    # except KeyboardInterrupt:
-    #     print('>> OK: stop data collecting\n')
-    #
-    #     message = bytearray.fromhex('00')
-    #     print(">> OK: message sent\n")
-    #     client_socket.send(message)
-    #
-    #     message = bytearray.fromhex('07')
-    #     client_socket.send(message)
-    #     print(">> OK: message sent")
-    #     version_str = ''
-    #     while True:
-    #         version_str += receive(1).decode('cp437')
-    #         if version_str[-1] == '\n' and 'BITalino' in version_str:
-    #             break
-    #     print(version_str[version_str.index("BITalino"):-1] + '\n')
-    #
-    #     print(">> OK: connect to the internet now...\n")
-    #     # time.sleep(30)  # we need to have time to connect to the internet again
-    #
-    #     # send received data to repovizz2
-    #     convert_to_h5()
+        # accept client connection
+        device.socket = socket_wait_client(server_socket)
 
-    # This should be moved within the KeyboardInterrupt exception block
-    if os.path.isfile(pathDumpH5):
-        post_recording(os.path.basename(pathDumpH5))
+        if not configured_webpage:  # configure BITalino through commands sent over TCP/IP connection
+            _, encoded_metadata = encode_hdf5_metadata(webpage=False)  # fetch metadata
+            device.started = False
+            device.start(sampling_rate, acquisition_channels)
+        else:  # BITalino was configured through the web page
+            device.started = True
+            device.stop()  # enter idle mode
+            acquired_data, encoded_metadata = encode_hdf5_metadata(webpage=True, device=device)  # fetch metadata
+            device.start(sampling_rate, acquisition_channels)  # restart acquisition
 
-    cleanup()
-    print("\n>> DONE")
+            # development section for testing in simulated mode
+            # remove afterwards and the encode metadata function only returns the encoded_metada array
+            if acquired_data['mode'] == 'simulated':
+                device.stop()  # enter idle mode
+                if int(acquired_data['samplingRate']) == 1000:
+                    commandSRate = 3
+                elif int(acquired_data['samplingRate']) == 100:
+                    commandSRate = 2
+                elif int(acquired_data['samplingRate']) == 10:
+                    commandSRate = 1
+                elif int(acquired_data['samplingRate']) == 1:
+                    commandSRate = 0
+                device.send((commandSRate << 6) | 0x03)
+                commandStart = 2
+                for i in acquisition_channels:
+                    commandStart = commandStart | 1 << (2 + i)
+                device.send(commandStart)
+                device.started = True
+
+            device.trigger(acquired_data['digitalChannels'][2:4])
+
+        try:
+            print(">> OK: now collecting data...")
+            print(datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3])
+            while True:
+                acquired_data = device.read(no_samples)
+                np.savetxt(dumpOS, acquired_data, delimiter='\t', fmt='%i')
+        except (KeyboardInterrupt, Exception) as e:
+            exception_name = type(e).__name__
+            if exception_name == 'KeyboardInterrupt':
+                # stop acquisition
+                device.stop()
+                # close connection
+                device.close()
+            if (exception_name == 'Exception' and e.args[0] == 'The computer lost communication with the device.') or exception_name == 'KeyboardInterrupt':
+                print("\n>> OK: stop data collecting")
+                print(datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3])
+
+                print(">> OK: connect to the internet now...\n")
+                # time.sleep(30)  # we need to have time to connect to the internet again
+
+                # send received data to repovizz2
+                convert_to_h5(encoded_metadata)
+                if os.path.isfile(pathDumpH5):
+                    post_recording(os.path.basename(pathDumpH5))
+
+                cleanup()
+
+                print("\n>> DONE")
