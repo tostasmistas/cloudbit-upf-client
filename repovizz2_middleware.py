@@ -155,27 +155,44 @@ def post_recording(hdf5_file):
         new_data_node['text'] += str(datetime.datetime.now())
         datapack_structure['children'].append(new_data_node)
 
-        # Post the datapack structure first
-        result = repovizz2_client.post(
-            "/api/v1.0/datapacks",
-            json={
-                'structure': datapack_structure,
-                'name': datapack_structure['info']['name'],
-                'owner': user_info["id"]
-            }
-        )
-        print("Datapack structure upload status:")
-        print(json.dumps(result))
+        # Upload the datapack structure first
+        structure_uploaded = False
+        structure_upload_result = None
+        while structure_uploaded is False:
+            structure_upload_result = repovizz2_client.post(
+                "/api/v1.0/datapacks",
+                json={
+                    'structure': datapack_structure,
+                    'name': datapack_structure['info']['name'],
+                    'owner': user_info["id"]
+                }
+            )
+            if structure_upload_result['result'] == 'OK':
+                structure_uploaded = True
+                print("Datapack structure uploaded.")
+                print(json.dumps(structure_upload_result, indent=4, separators=(',', ': ')))
+            else:
+                print("Status code " + str(structure_upload_result.status_code) + " encountered during upload. Retrying...")
 
-        datapack = result['item']
 
-        # Now upload the file
-        result2 = repovizz2_client.post(
-            '/api/v1.0/datapacks/{}/content/{}'.format(datapack['id'], hdf5_file),
-            files={hdf5_file: open(hdf5_file)}
-        )
-        print("CloudBIT recording upload status:")
-        print(json.dumps(result2, indent=4, separators=(',', ': ')))
+        datapack = structure_upload_result['item']
+
+        # Upload the file
+        file_uploaded = False
+        while file_uploaded is False:
+            file_upload_result = repovizz2_client.post(
+                '/api/v1.0/datapacks/{}/content/{}'.format(datapack['id'], hdf5_file),
+                files={hdf5_file: open(hdf5_file, 'rb')},
+                raw=True
+            )
+
+            if file_upload_result.status_code == 200:
+                file_uploaded = True
+                print("CloudBIT recording uploaded.")
+                print(json.dumps(file_upload_result.json(), indent=4, separators=(',', ': ')))
+            else:
+                print("Status code " + str(file_upload_result.status_code) + " encountered during upload. Retrying...")
+
     else:
         print("*************** The CloudBIT datapack exists ***************")
         # Check if this particular recording has been already uploaded
@@ -190,18 +207,37 @@ def post_recording(hdf5_file):
             new_data_node['text'] += hdf5_file[3:-3]
             cloudBIT_datapack['structure']['children'].append(new_data_node)
 
-            result = repovizz2_client.post("/api/v1.0/datapacks/{}".format(cloudBIT_datapack['id']),
-                                           json=cloudBIT_datapack)
-            print("Datapack structure update status:")
-            print(json.dumps(result, indent=4, separators=(',', ': ')))
+            # Upload the datapack structure
+            structure_uploaded = False
+            while structure_uploaded is False:
+                structure_upload_result = repovizz2_client.post(
+                    "/api/v1.0/datapacks/{}".format(cloudBIT_datapack['id']), json=cloudBIT_datapack, raw=True)
+
+                if structure_upload_result.status_code == 200:
+                    structure_uploaded = True
+                    print("Datapack structure uploaded.")
+                    print(json.dumps(structure_upload_result.json(), indent=4, separators=(',', ': ')))
+                else:
+                    print("Status code " + str(
+                        structure_upload_result.status_code) + " encountered during upload. Retrying...")
 
             # Upload the file
-            result2 = repovizz2_client.post(
-                '/api/v1.0/datapacks/{}/content/{}'.format(cloudBIT_datapack['id'], hdf5_file),
-                files={hdf5_file: open(hdf5_file)}
-            )
-            print("CloudBIT recording upload status:")
-            print(json.dumps(result2, indent=4, separators=(',', ': ')))
+            file_uploaded = False
+            while file_uploaded is False:
+                file_upload_result = repovizz2_client.post(
+                    '/api/v1.0/datapacks/{}/content/{}'.format(cloudBIT_datapack['id'], hdf5_file),
+                    files={hdf5_file: open(hdf5_file, 'rb')},
+                    raw=True
+                )
+
+                if file_upload_result.status_code == 200:
+                    file_uploaded = True
+                    print("CloudBIT recording uploaded.")
+                    print(json.dumps(file_upload_result.json, indent=4, separators=(',', ': ')))
+                else:
+                    print("Status code " + str(
+                        file_upload_result.status_code) + " encountered during upload. Retrying...")
+
 
 
 # Searches for a data node by name
@@ -329,5 +365,4 @@ if __name__ == '__main__':
                     post_recording(os.path.basename(pathDumpH5))
 
                 cleanup()
-
                 print("\n>> DONE")
