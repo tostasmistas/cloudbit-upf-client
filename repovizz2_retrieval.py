@@ -46,5 +46,17 @@ data_id = datapack['structure']['children'][-1]['link']
 print(data_id)
 data_id = data_id.split(':')[1]  # remove prefix
 d = repovizz2_client.get('/api/v1.0/datapacks/' + datapack['id'] + '/content/' + data_id, raw=True)
+dump_file = open('log_h5.h5', 'wb')
+dump_file.write(d.content)
+dump_file.close()
 
-print(d.content)
+
+def print_values(name, obj):
+    print(name, obj)
+
+
+h5_file = h5py.File('log_h5.h5', 'r')
+h5_file.visititems(print_values)
+
+
+
